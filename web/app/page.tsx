@@ -89,24 +89,25 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center p-6 bg-[#0a0a0c]">
-      <div className="w-full max-w-[32rem]">
+    <main className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 bg-[#0a0a0c] pt-[env(safe-area-inset-top)]">
+      <div className="w-full max-w-[32rem] min-w-0">
         <div
-          className={`rounded-3xl border border-white/[0.1] bg-white/[0.06] shadow-xl shadow-black/30 backdrop-blur-sm overflow-hidden transition-all duration-300 ${
+          className={`rounded-2xl sm:rounded-3xl border border-white/[0.1] bg-white/[0.06] shadow-xl shadow-black/30 backdrop-blur-sm overflow-hidden transition-all duration-300 ${
             hasResult ? "animate-card-glow card-motion" : ""
           }`}
-          style={{ minWidth: 480 }}
         >
           <form onSubmit={handleSubmit} className="flex flex-col">
             {!hasResult && (
-              <div className="px-9 pt-8 pb-5 space-y-4">
+              <div className="px-4 sm:px-6 md:px-9 pt-6 sm:pt-8 pb-4 sm:pb-5 space-y-4">
                 <input
                   ref={inputRef}
-                  type="text"
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
                   value={number}
                   onChange={(e) => setNumber(e.target.value)}
                   placeholder="+359 89 428 8133"
-                  className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-white placeholder-white/30 focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/10 text-center text-[1.05rem] tracking-tight transition-all duration-200"
+                  className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3.5 sm:py-3 text-white placeholder-white/30 focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/10 text-center text-base sm:text-[1.05rem] tracking-tight transition-all duration-200 min-h-[48px]"
                 />
                 {!usePublicAgent && (
                   <div className="flex flex-col gap-1.5">
@@ -127,15 +128,14 @@ export default function Home() {
             )}
 
             {error && (
-              <p className="px-9 pb-2 text-center text-sm text-red-400/90 animate-fade-slide-in">
+              <p className="px-4 sm:px-6 md:px-9 pb-2 text-center text-sm text-red-400/90 animate-fade-slide-in">
                 {error}
               </p>
             )}
 
             {loading && (
               <div
-                className="flex items-center justify-center gap-4 px-9 py-8 border-t border-white/[0.08] animate-fade-slide-in"
-                style={{ minHeight: 174 }}
+                className="flex items-center justify-center gap-3 sm:gap-4 px-4 sm:px-6 md:px-9 py-6 sm:py-8 border-t border-white/[0.08] animate-fade-slide-in min-h-[140px] sm:min-h-[174px]"
                 aria-live="polite"
                 aria-busy="true"
               >
@@ -151,14 +151,11 @@ export default function Home() {
             )}
 
             {hasResult && (
-              <div
-                className="flex items-stretch gap-9 px-9 py-5 border-t border-white/[0.08] animate-fade-slide-in"
-                style={{ minHeight: 174 }}
-              >
+              <div className="flex flex-col sm:flex-row items-center sm:items-stretch gap-4 sm:gap-6 md:gap-9 px-4 sm:px-6 md:px-9 py-5 border-t border-white/[0.08] animate-fade-slide-in min-h-[140px] sm:min-h-[174px]">
                 {panelImage && (
                   <div
-                    className="flex-shrink-0 rounded-full overflow-hidden ring-2 ring-white/10 bg-white/5 animate-scale-in"
-                    style={{ width: 132, height: 132, animationDelay: "0.05s", animationFillMode: "both" }}
+                    className="flex-shrink-0 rounded-full overflow-hidden ring-2 ring-white/10 bg-white/5 animate-scale-in w-24 h-24 sm:w-28 sm:h-28 md:w-[132px] md:h-[132px]"
+                    style={{ animationDelay: "0.05s", animationFillMode: "both" }}
                   >
                     <img
                       src={`data:image/png;base64,${panelImage}`}
@@ -167,48 +164,50 @@ export default function Home() {
                     />
                   </div>
                 )}
-                <div className="flex flex-col min-w-0 flex-1 justify-center py-1 overflow-hidden">
+                <div className="flex flex-col min-w-0 flex-1 justify-center py-1 overflow-hidden w-full text-center sm:text-left">
                   {contactName && (
                     <div
-                      className="flex items-center gap-4 min-h-[3.375rem] animate-slide-in-right opacity-0"
+                      className="flex items-center justify-center sm:justify-start gap-3 sm:gap-4 min-h-[2.5rem] sm:min-h-[3.375rem] animate-slide-in-right opacity-0"
                       style={{ animationDelay: "0.15s", animationFillMode: "both" }}
                     >
                       <span
-                        className="flex-shrink-0 flex items-center justify-center rounded-xl bg-white/[0.08] text-white/70 cursor-default"
-                        style={{ width: 42, height: 42 }}
+                        className="flex-shrink-0 flex items-center justify-center rounded-xl bg-white/[0.08] text-white/70 w-10 h-10 sm:w-[42px] sm:h-[42px]"
                         aria-hidden
                         onMouseEnter={() => userIconRef.current?.startAnimation()}
                         onMouseLeave={() => userIconRef.current?.stopAnimation()}
+                        onTouchStart={() => userIconRef.current?.startAnimation()}
+                        onTouchEnd={() => userIconRef.current?.stopAnimation()}
                       >
                         <UserIcon ref={userIconRef} size={24} strokeWidth={2} />
                       </span>
-                      <p className="text-3xl font-semibold text-white tracking-tight truncate leading-tight">
+                      <p className="text-xl sm:text-2xl md:text-3xl font-semibold text-white tracking-tight truncate leading-tight">
                         {contactName}
                       </p>
                     </div>
                   )}
                   {contactName && lookedUpNumber && (
                     <div
-                      className="my-2.5 h-px bg-white/[0.08] animate-line-expand opacity-0"
+                      className="my-2 sm:my-2.5 h-px bg-white/[0.08] animate-line-expand opacity-0"
                       style={{ animationDelay: "0.3s", animationFillMode: "both" }}
                       role="presentation"
                     />
                   )}
                   {lookedUpNumber && (
                     <div
-                      className="flex items-center gap-4 min-h-[3rem] animate-slide-in-right opacity-0"
+                      className="flex items-center justify-center sm:justify-start gap-3 sm:gap-4 min-h-[2.5rem] sm:min-h-[3rem] animate-slide-in-right opacity-0"
                       style={{ animationDelay: "0.4s", animationFillMode: "both" }}
                     >
                       <span
-                        className="flex-shrink-0 flex items-center justify-center rounded-xl bg-white/[0.08] text-white/70 cursor-default"
-                        style={{ width: 42, height: 42 }}
+                        className="flex-shrink-0 flex items-center justify-center rounded-xl bg-white/[0.08] text-white/70 w-10 h-10 sm:w-[42px] sm:h-[42px]"
                         aria-hidden
                         onMouseEnter={() => phoneIconRef.current?.startAnimation()}
                         onMouseLeave={() => phoneIconRef.current?.stopAnimation()}
+                        onTouchStart={() => phoneIconRef.current?.startAnimation()}
+                        onTouchEnd={() => phoneIconRef.current?.stopAnimation()}
                       >
                         <PhoneIcon ref={phoneIconRef} size={24} strokeWidth={2} />
                       </span>
-                      <p className="text-xl text-white/80 tracking-tight truncate tabular-nums">
+                      <p className="text-lg sm:text-xl text-white/80 tracking-tight truncate tabular-nums">
                         {lookedUpNumber}
                       </p>
                     </div>
@@ -217,12 +216,12 @@ export default function Home() {
               </div>
             )}
 
-            <div className="px-9 pb-8 pt-4">
+            <div className="px-4 sm:px-6 md:px-9 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
               {hasResult ? (
                 <button
                   type="button"
                   onClick={handleCheckAnother}
-                  className="w-full rounded-xl border border-white/20 bg-white/5 py-3 font-semibold text-white hover:bg-white/10 active:scale-[0.99] transition-all duration-200"
+                  className="w-full rounded-xl border border-white/20 bg-white/5 py-3.5 sm:py-3 font-semibold text-white hover:bg-white/10 active:scale-[0.99] transition-all duration-200 min-h-[48px] touch-manipulation"
                 >
                   Провери друг номер
                 </button>
@@ -230,7 +229,7 @@ export default function Home() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full rounded-xl bg-white py-3 font-semibold text-black hover:bg-white/95 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 transition-all duration-200"
+                  className="w-full rounded-xl bg-white py-3.5 sm:py-3 font-semibold text-black hover:bg-white/95 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 transition-all duration-200 min-h-[48px] touch-manipulation"
                 >
                   {loading ? "…" : "Търси"}
                 </button>
