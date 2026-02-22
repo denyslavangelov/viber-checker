@@ -19,6 +19,7 @@ export default function Home() {
   );
   const [agentUrlOverride, setAgentUrlOverride] = useState("");
   const agentUrl = agentUrlOverride.trim() || defaultAgentUrl;
+  const usePublicAgent = !!(process.env.NEXT_PUBLIC_AGENT_URL?.trim());
 
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_AGENT_URL) return;
@@ -107,19 +108,21 @@ export default function Home() {
                   placeholder="+359 89 428 8133"
                   className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-white placeholder-white/30 focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/10 text-center text-[1.05rem] tracking-tight transition-all duration-200"
                 />
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="agent-url" className="text-xs text-white/40">
-                    Agent URL (опционално)
-                  </label>
-                  <input
-                    id="agent-url"
-                    type="url"
-                    value={agentUrlOverride}
-                    onChange={(e) => setAgentUrlOverride(e.target.value)}
-                    placeholder={defaultAgentUrl}
-                    className="w-full rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-sm text-white placeholder-white/25 focus:border-white/15 focus:outline-none focus:ring-1 focus:ring-white/10"
-                  />
-                </div>
+                {!usePublicAgent && (
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="agent-url" className="text-xs text-white/40">
+                      Agent URL (опционално)
+                    </label>
+                    <input
+                      id="agent-url"
+                      type="url"
+                      value={agentUrlOverride}
+                      onChange={(e) => setAgentUrlOverride(e.target.value)}
+                      placeholder={defaultAgentUrl}
+                      className="w-full rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-sm text-white placeholder-white/25 focus:border-white/15 focus:outline-none focus:ring-1 focus:ring-white/10"
+                    />
+                  </div>
+                )}
               </div>
             )}
 

@@ -37,3 +37,25 @@ The agent runs on your PC (where Viber is). To use the app from your phone:
    In the app, set **Agent URL (опционално)** to **http://&lt;PC_IP&gt;:5050** (your PC’s local IP and the agent port). Then the Viber check runs on your PC.
 
 If the phone still can’t reach the agent, check the PC firewall allows inbound connections on port 5050.
+
+## Let everyone use your PC as the host
+
+To make the Vercel app use **your PC** as the backend for all users (anyone who opens the site hits your agent):
+
+1. **Expose the agent to the internet**  
+   Run the agent on your PC and create a tunnel so it has a public URL.  
+   **Option A – ngrok (simple):**
+   - Install [ngrok](https://ngrok.com/) and run: `ngrok http 5050`
+   - Keep the agent running: `python agent.py` (or `python agent.py --host 127.0.0.1 --port 5050`; ngrok forwards to localhost).
+   - Copy the HTTPS URL ngrok shows (e.g. `https://abc123.ngrok-free.app`).
+   **Option B – Cloudflare Tunnel:**  
+   Use [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/) to expose port 5050 and get a public URL.
+
+2. **Point the Vercel app at that URL**  
+   In Vercel: **Project → Settings → Environment Variables**. Add:
+   - **Name:** `NEXT_PUBLIC_AGENT_URL`  
+   - **Value:** your tunnel URL (e.g. `https://abc123.ngrok-free.app`) — no trailing slash.
+   Apply to Production (and Preview if you want), Save, then **redeploy** the project.
+
+3. **Result**  
+   Everyone who opens your Vercel site will use your PC as the agent. The “Agent URL” field is hidden when this is set. Keep your PC and the agent (and ngrok, if used) running when you want the service available.

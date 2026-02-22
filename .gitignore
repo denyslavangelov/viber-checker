@@ -39,6 +39,9 @@ npm-debug.log*
 # Cursor / editor
 .cursor/
 
+# Local tools (download ngrok into tools/ per tools/README.md)
+tools/ngrok.exe
+
 # Optional
 *.bak
 .coverage
