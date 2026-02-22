@@ -78,8 +78,14 @@ export default function Home() {
         return;
       }
 
+      const name = (data.contact_name ?? "").trim();
+      if (!name) {
+        setError("Контактът не беше намерен.");
+        return;
+      }
+
       if (data.panel_base64) setPanelImage(data.panel_base64);
-      setContactName(data.contact_name ?? null);
+      setContactName(name);
       setLookedUpNumber((data.number || number).trim());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Заявката не успя");
