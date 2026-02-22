@@ -1,0 +1,134 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: var(--font-geologica), ui-sans-serif, system-ui, sans-serif;
+  }
+}
+
+@keyframes fade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes line-expand {
+  from {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes card-glow {
+  0%, 100% {
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.35);
+  }
+  50% {
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.35), 0 0 0 1px rgba(255 255 255 / 0.06);
+  }
+}
+
+.animate-fade-slide-in {
+  animation: fade-slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-line-expand {
+  transform-origin: left;
+  animation: line-expand 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-card-glow {
+  animation: card-glow 3s ease-in-out infinite;
+}
+
+.card-motion {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease, border-color 0.2s ease;
+}
+.card-motion:hover {
+  transform: scale(1.02);
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.4), 0 0 0 1px rgba(255 255 255 / 0.08);
+  border-color: rgba(255 255 255 / 0.12);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes loading-pulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes loading-dots {
+  0%, 20% {
+    opacity: 0.2;
+  }
+  40%, 100% {
+    opacity: 1;
+  }
+}
+
+.animate-spin-slow {
+  animation: spin 0.9s linear infinite;
+}
+
+.animate-loading-pulse {
+  animation: loading-pulse 1.2s ease-in-out infinite;
+}
+
+.loading-dot {
+  animation: loading-dots 1.4s ease-in-out infinite both;
+}
+.loading-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.loading-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
