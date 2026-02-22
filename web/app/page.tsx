@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import UserIcon from "@/components/icons/user-icon";
 import PhoneIcon from "@/components/icons/phone-icon";
 import type { AnimatedIconHandle } from "@/components/icons/types";
@@ -14,9 +14,17 @@ interface ApiResponse {
 }
 
 export default function Home() {
-  const [agentUrl] = useState(
+  const [defaultAgentUrl, setDefaultAgentUrl] = useState(
     () => process.env.NEXT_PUBLIC_AGENT_URL ?? "http://127.0.0.1:5050"
   );
+  const [agentUrlOverride, setAgentUrlOverride] = useState("");
+  const agentUrl = agentUrlOverride.trim() || defaultAgentUrl;
+
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_AGENT_URL) return;
+    setDefaultAgentUrl(`http://${window.location.hostname}:5050`);
+  }, []);
+
   const [number, setNumber] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +53,7 @@ export default function Home() {
     setContactName(null);
     setLookedUpNumber(null);
 
-    const base = (agentUrl || process.env.NEXT_PUBLIC_AGENT_URL || "").trim().replace(/\/$/, "");
+    const base = agentUrl.trim().replace(/\/$/, "");
     if (!base || !number.trim()) {
       setError("Въведете телефонен номер");
       return;
@@ -90,7 +98,7 @@ export default function Home() {
         >
           <form onSubmit={handleSubmit} className="flex flex-col">
             {!hasResult && (
-              <div className="px-9 pt-8 pb-5">
+              <div className="px-9 pt-8 pb-5 space-y-4">
                 <input
                   ref={inputRef}
                   type="text"
@@ -99,6 +107,19 @@ export default function Home() {
                   placeholder="+359 89 428 8133"
                   className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-white placeholder-white/30 focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/10 text-center text-[1.05rem] tracking-tight transition-all duration-200"
                 />
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="agent-url" className="text-xs text-white/40">
+                    Agent URL (опционално)
+                  </label>
+                  <input
+                    id="agent-url"
+                    type="url"
+                    value={agentUrlOverride}
+                    onChange={(e) => setAgentUrlOverride(e.target.value)}
+                    placeholder={defaultAgentUrl}
+                    className="w-full rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-sm text-white placeholder-white/25 focus:border-white/15 focus:outline-none focus:ring-1 focus:ring-white/10"
+                  />
+                </div>
               </div>
             )}
 
