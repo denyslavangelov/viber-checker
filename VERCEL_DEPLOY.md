@@ -15,7 +15,10 @@ This repo contains:
    - Find **Output Directory**.
    - If it shows `public` (or anything), **clear it completely** so the field is empty, then Save.
    - Next.js uses its own output (`.next`); Vercel must not be set to `public` or the build will fail with "No Output Directory named 'public' found".
-4. Deploy (or redeploy).
+4. **Environment Variables** (when the agent runs on a VPS or another server):
+   - Add **AGENT_URL** = `http://<agent-ip>:5050` (e.g. `http://188.137.227.236:5050`). No trailing slash.
+   - The app uses this **server-side** to proxy requests to the agent, so the browser never calls HTTP directly (avoids "Failed to fetch" / mixed content). Do **not** set `NEXT_PUBLIC_AGENT_URL` for this setup.
+5. Deploy (or redeploy).
 
 If Root Directory is not set to `web`, Vercel will treat the repo as Flask and the build will fail. If Output Directory is set to `public`, the build will fail because this project has no `public` output—clear it.
 

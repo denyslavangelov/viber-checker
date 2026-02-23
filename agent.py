@@ -34,9 +34,11 @@ except ImportError:
 # Window bounds + close app (pip install pywinauto)
 try:
     from pywinauto import Application
+    from pywinauto.keyboard import send_keys as _keyboard_send_keys
     HAS_PYWINAUTO = True
 except ImportError:
     HAS_PYWINAUTO = False
+    _keyboard_send_keys = None
 
 # OCR: GPT Vision only (set OPENAI_API_KEY)
 try:
@@ -63,6 +65,7 @@ def _cors(resp):
 
 @app.route("/check-number", methods=["OPTIONS"])
 @app.route("/check-number-base64", methods=["OPTIONS"])
+@app.route("/send-message", methods=["OPTIONS"])
 def _cors_preflight():
     return "", 204
 
@@ -86,6 +89,7 @@ WINDOW_WAIT_TIMEOUT = 14  # max seconds to wait for Viber window to appear
 WINDOW_POLL_INTERVAL = 0.25  # between poll attempts
 CONNECT_TIMEOUT = float(os.environ.get("CONNECT_TIMEOUT", "0.5"))  # fail fast when Viber not ready
 RETRY_EXTRA_WAIT = 1.5  # before retry if window not found
+MESSAGE_INPUT_WAIT = 2.0  # after chat opens, before typing (so input is focused)
 
 # Right panel crop: the highlighted part (large contact photo + name + icons)
 # Measured in Paint: 300×255, top padding is correct.
@@ -382,6 +386,58 @@ def do_viber_search_and_screenshot(
     return window_png, panel_png, None
 
 
+def do_viber_send_message(phone_number: str, message: str) -> str | None:
+    """
+    Open Viber chat with the given number, type the message, send it (Enter), then close Viber.
+    Returns None on success, or an error message string.
+    """
+    if not HAS_PYWINAUTO or _keyboard_send_keys is None:
+        return "pywinauto not installed"
+    if not message or not message.strip():
+        return "Message is empty"
+
+    total_start = time.monotonic()
+    print("[viber-agent] --- send message start ---", flush=True)
+
+    t0 = time.monotonic()
+    err = open_viber_chat(phone_number)
+    _log_step("open viber:// link", time.monotonic() - t0)
+    if err:
+        return err
+
+    time.sleep(INITIAL_WAIT)
+    viber_app, _, err = connect_to_viber_window()
+    if err or viber_app is None:
+        return err or "Could not find Viber window"
+
+    dlg = viber_app.top_window()
+    try:
+        dlg.restore()
+        dlg.set_focus()
+    except Exception:
+        pass
+    time.sleep(MESSAGE_INPUT_WAIT)
+
+    t0 = time.monotonic()
+    try:
+        # Type message and Enter into the focused window (chat input)
+        _keyboard_send_keys(message.strip() + "{ENTER}", with_spaces=True)
+    except Exception as e:
+        _log_step("type message", time.monotonic() - t0)
+        return f"Failed to type/send: {e}"
+    _log_step("type message + Enter", time.monotonic() - t0)
+
+    time.sleep(0.5)
+    try:
+        dlg = viber_app.top_window()
+        dlg.close()
+    except Exception:
+        pass
+    _log_step("TOTAL (send message)", time.monotonic() - total_start)
+    print("[viber-agent] --- send message done ---", flush=True)
+    return None
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify(
@@ -493,6 +549,26 @@ def check_number_base64():
     if contact_name:
         out["contact_name"] = contact_name
     return jsonify(out)
+
+
+@app.route("/send-message", methods=["POST"])
+def send_message():
+    """
+    Body (JSON): { "number": "+123...", "message": "Hello" }.
+    Opens Viber chat with the number, types the message, sends (Enter), then closes Viber.
+    """
+    data = request.get_json(silent=True) or {}
+    number = (data.get("number") or "").strip()
+    message = (data.get("message") or "").strip()
+    if not number:
+        return jsonify(error="Missing 'number' in JSON body"), 400
+    if not message:
+        return jsonify(error="Missing 'message' in JSON body"), 400
+
+    err = do_viber_send_message(number, message)
+    if err:
+        return jsonify(error=err), 500
+    return jsonify(ok=True, number=number)
 
 
 if __name__ == "__main__":

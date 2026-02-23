@@ -14,29 +14,34 @@ interface ApiResponse {
 }
 
 export default function Home() {
-  const [defaultAgentUrl, setDefaultAgentUrl] = useState(
-    () => process.env.NEXT_PUBLIC_AGENT_URL ?? "http://127.0.0.1:5050"
-  );
-  const [agentUrlOverride, setAgentUrlOverride] = useState("");
-  const agentUrl = agentUrlOverride.trim() || defaultAgentUrl;
-  const usePublicAgent = !!(process.env.NEXT_PUBLIC_AGENT_URL?.trim());
+  const [agentUrl, setAgentUrl] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const pub = process.env.NEXT_PUBLIC_AGENT_URL?.trim();
+    if (pub) return pub;
+    return window.location.origin + "/api/agent";
+  });
 
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_AGENT_URL) return;
-    setDefaultAgentUrl(`http://${window.location.hostname}:5050`);
+    if (process.env.NEXT_PUBLIC_AGENT_URL?.trim()) return;
+    setAgentUrl(window.location.origin + "/api/agent");
   }, []);
 
+  const [mode, setMode] = useState<"lookup" | "send">("lookup");
   const [number, setNumber] = useState("");
+  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [panelImage, setPanelImage] = useState<string | null>(null);
   const [contactName, setContactName] = useState<string | null>(null);
   const [lookedUpNumber, setLookedUpNumber] = useState<string | null>(null);
+  const [sendSuccess, setSendSuccess] = useState(false);
   const userIconRef = useRef<AnimatedIconHandle>(null);
   const phoneIconRef = useRef<AnimatedIconHandle>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const hasResult = !!(panelImage || contactName || lookedUpNumber);
+  const showSendForm = mode === "send" && !hasResult && !sendSuccess;
+  const showSendSuccess = mode === "send" && sendSuccess;
 
   function handleCheckAnother() {
     setPanelImage(null);
@@ -45,6 +50,52 @@ export default function Home() {
     setNumber("");
     setError(null);
     inputRef.current?.focus();
+  }
+
+  function handleSendAnother() {
+    setSendSuccess(false);
+    setMessage("");
+    setError(null);
+  }
+
+  async function handleSendMessage(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSendSuccess(false);
+
+    const base = agentUrl.trim().replace(/\/$/, "");
+    if (!base || !number.trim()) {
+      setError("Въведете телефонен номер");
+      return;
+    }
+    if (!message.trim()) {
+      setError("Въведете съобщение");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${base}/send-message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          number: number.trim(),
+          message: message.trim(),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setError((data as { error?: string }).error || "Заявката не успя");
+        return;
+      }
+      setSendSuccess(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Заявката не успя");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -102,9 +153,40 @@ export default function Home() {
             hasResult ? "animate-card-glow card-motion" : ""
           }`}
         >
-          <form onSubmit={handleSubmit} className="flex flex-col">
-            {!hasResult && (
-              <div className="px-4 sm:px-6 md:px-9 pt-6 sm:pt-8 pb-4 sm:pb-5 space-y-4">
+          <form
+            onSubmit={mode === "send" ? handleSendMessage : handleSubmit}
+            className="flex flex-col"
+          >
+            {/* Mode toggle */}
+            {!hasResult && !showSendSuccess && (
+              <div className="flex rounded-xl bg-white/[0.06] p-1 mx-4 sm:mx-6 md:mx-9 mt-4 sm:mt-6">
+                <button
+                  type="button"
+                  onClick={() => { setMode("lookup"); setError(null); }}
+                  className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all ${
+                    mode === "lookup"
+                      ? "bg-white text-black"
+                      : "text-white/70 hover:text-white"
+                  }`}
+                >
+                  Търси
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMode("send"); setError(null); setSendSuccess(false); }}
+                  className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all ${
+                    mode === "send"
+                      ? "bg-white text-black"
+                      : "text-white/70 hover:text-white"
+                  }`}
+                >
+                  Изпрати съобщение
+                </button>
+              </div>
+            )}
+
+            {!hasResult && !showSendForm && !showSendSuccess && (
+              <div className="px-4 sm:px-6 md:px-9 pt-4 sm:pt-6 pb-4 sm:pb-5 space-y-4">
                 <input
                   ref={inputRef}
                   type="tel"
@@ -115,21 +197,27 @@ export default function Home() {
                   placeholder="+359 89 428 8133"
                   className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3.5 sm:py-3 text-white placeholder-white/30 focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/10 text-center text-base sm:text-[1.05rem] tracking-tight transition-all duration-200 min-h-[48px]"
                 />
-                {!usePublicAgent && (
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="agent-url" className="text-xs text-white/40">
-                      Agent URL (опционално)
-                    </label>
-                    <input
-                      id="agent-url"
-                      type="url"
-                      value={agentUrlOverride}
-                      onChange={(e) => setAgentUrlOverride(e.target.value)}
-                      placeholder={defaultAgentUrl}
-                      className="w-full rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-sm text-white placeholder-white/25 focus:border-white/15 focus:outline-none focus:ring-1 focus:ring-white/10"
-                    />
-                  </div>
-                )}
+              </div>
+            )}
+
+            {showSendForm && (
+              <div className="px-4 sm:px-6 md:px-9 pt-4 sm:pt-6 pb-4 sm:pb-5 space-y-4">
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  value={number}
+                  onChange={(e) => setNumber(e.target.value)}
+                  placeholder="+359 89 428 8133"
+                  className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3.5 sm:py-3 text-white placeholder-white/30 focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/10 text-center text-base sm:text-[1.05rem] tracking-tight transition-all duration-200 min-h-[48px]"
+                />
+                <textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Текст на съобщението..."
+                  rows={3}
+                  className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-white placeholder-white/30 focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/10 resize-none text-base min-h-[80px]"
+                />
               </div>
             )}
 
@@ -150,9 +238,17 @@ export default function Home() {
                   aria-hidden
                 />
                 <div className="flex flex-col items-start gap-1">
-                  <p className="text-lg font-medium text-white/90">Търся…</p>
-                  <p className="text-sm text-white/50">Отваряне на Viber, заснемане на контакт</p>
+                  <p className="text-lg font-medium text-white/90">
+                    {mode === "send" ? "Изпращам…" : "Търся…"}
+                  </p>
                 </div>
+              </div>
+            )}
+
+            {showSendSuccess && (
+              <div className="px-4 sm:px-6 md:px-9 py-6 sm:py-8 border-t border-white/[0.08] animate-fade-slide-in text-center">
+                <p className="text-lg font-medium text-white/90">Съобщението беше изпратено.</p>
+                <p className="text-sm text-white/50 mt-1">Viber беше затворен.</p>
               </div>
             )}
 
@@ -231,13 +327,21 @@ export default function Home() {
                 >
                   Провери друг номер
                 </button>
+              ) : showSendSuccess ? (
+                <button
+                  type="button"
+                  onClick={handleSendAnother}
+                  className="w-full rounded-xl border border-white/20 bg-white/5 py-3.5 sm:py-3 font-semibold text-white hover:bg-white/10 active:scale-[0.99] transition-all duration-200 min-h-[48px] touch-manipulation"
+                >
+                  Изпрати друго
+                </button>
               ) : (
                 <button
                   type="submit"
                   disabled={loading}
                   className="w-full rounded-xl bg-white py-3.5 sm:py-3 font-semibold text-black hover:bg-white/95 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 transition-all duration-200 min-h-[48px] touch-manipulation"
                 >
-                  {loading ? "…" : "Търси"}
+                  {loading ? "…" : mode === "send" ? "Изпрати" : "Търси"}
                 </button>
               )}
             </div>
