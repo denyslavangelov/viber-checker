@@ -26,7 +26,8 @@ export default function Home() {
     setAgentUrl(window.location.origin + "/api/agent");
   }, []);
 
-  const [mode, setMode] = useState<"lookup" | "send">("lookup");
+  const [mode, setMode] = useState<"lookup" | "send" | "api">("lookup");
+  const [copied, setCopied] = useState<string | null>(null);
   const [number, setNumber] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -42,6 +43,23 @@ export default function Home() {
   const hasResult = !!(panelImage || contactName || lookedUpNumber);
   const showSendForm = mode === "send" && !hasResult && !sendSuccess;
   const showSendSuccess = mode === "send" && sendSuccess;
+  const baseUrl = agentUrl.trim().replace(/\/$/, "") || "";
+
+  async function copyToClipboard(text: string, id: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(id);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      setCopied(null);
+    }
+  }
+
+  const apiCommands = {
+    health: `curl ${baseUrl}/health`,
+    lookup: `curl -X POST ${baseUrl}/check-number-base64 -H "Content-Type: application/json" -d "{\\"number\\": \\"0877315132\\", \\"only_panel\\": true}"`,
+    send: `curl -X POST ${baseUrl}/send-message -H "Content-Type: application/json" -d "{\\"number\\": \\"0877315132\\", \\"message\\": \\"Hello\\"}"`,
+  };
 
   function handleCheckAnother() {
     setPanelImage(null);
@@ -175,12 +193,83 @@ export default function Home() {
                       : "text-white/70 hover:text-white"
                   }`}
                 >
-                  Изпрати съобщение
+                  Изпрати
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMode("api"); setError(null); }}
+                  className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all ${
+                    mode === "api"
+                      ? "bg-white text-black"
+                      : "text-white/70 hover:text-white"
+                  }`}
+                >
+                  API
                 </button>
               </div>
             )}
 
-            {!hasResult && !showSendForm && !showSendSuccess && (
+            {/* API docs panel */}
+            {mode === "api" && (
+              <div className="px-4 sm:px-6 md:px-9 py-5 sm:py-6 border-t border-white/[0.08] space-y-5">
+                <p className="text-sm text-white/60">Base URL (използва се за всички заявки):</p>
+                <div className="rounded-xl bg-black/30 border border-white/[0.08] px-3 py-2.5 font-mono text-sm text-white/90 break-all">
+                  {baseUrl || "—"}
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs font-medium text-white/50 uppercase tracking-wider mb-1.5">Health</p>
+                    <div className="flex gap-2 items-start">
+                      <code className="flex-1 min-w-0 rounded-lg bg-black/30 border border-white/[0.08] px-3 py-2.5 font-mono text-xs text-white/80 break-all">
+                        {apiCommands.health}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(apiCommands.health, "health")}
+                        className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-medium text-white/80 hover:bg-white/10"
+                      >
+                        {copied === "health" ? "Копирано" : "Копирай"}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-white/50 uppercase tracking-wider mb-1.5">Lookup (търсене)</p>
+                    <div className="flex gap-2 items-start">
+                      <code className="flex-1 min-w-0 rounded-lg bg-black/30 border border-white/[0.08] px-3 py-2.5 font-mono text-xs text-white/80 break-all">
+                        {apiCommands.lookup}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(apiCommands.lookup, "lookup")}
+                        className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-medium text-white/80 hover:bg-white/10"
+                      >
+                        {copied === "lookup" ? "Копирано" : "Копирай"}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-white/50 uppercase tracking-wider mb-1.5">Send message (изпрати съобщение)</p>
+                    <div className="flex gap-2 items-start">
+                      <code className="flex-1 min-w-0 rounded-lg bg-black/30 border border-white/[0.08] px-3 py-2.5 font-mono text-xs text-white/80 break-all">
+                        {apiCommands.send}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(apiCommands.send, "send")}
+                        className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-medium text-white/80 hover:bg-white/10"
+                      >
+                        {copied === "send" ? "Копирано" : "Копирай"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-white/40 pt-1">
+                  Командите са за CMD. Смени номера/съобщение в -d при нужда. При зададен AGENT_API_KEY добави заглавка: -H &quot;X-API-Key: YOUR_KEY&quot;
+                </p>
+              </div>
+            )}
+
+            {mode !== "api" && !hasResult && !showSendForm && !showSendSuccess && (
               <div className="px-4 sm:px-6 md:px-9 pt-4 sm:pt-6 pb-4 sm:pb-5 space-y-4">
                 <input
                   ref={inputRef}

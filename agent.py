@@ -13,13 +13,17 @@ import base64
 import uuid
 import webbrowser
 
-# Load .env from project root (same folder as agent.py) so OPENAI_API_KEY etc. can be set there
-try:
-    from dotenv import load_dotenv
-    _agent_dir = os.path.dirname(os.path.abspath(__file__))
-    load_dotenv(os.path.join(_agent_dir, ".env"))
-except ImportError:
-    pass
+# Load .env so OPENAI_API_KEY etc. are set (agent dir first, then cwd; override so .env wins)
+def _load_env():
+    try:
+        from dotenv import load_dotenv
+        agent_dir = os.path.dirname(os.path.abspath(__file__))
+        load_dotenv(os.path.join(agent_dir, ".env"), override=True)
+        load_dotenv(".env", override=True)
+    except ImportError:
+        pass
+
+_load_env()
 
 # OCR debug logs: use a dedicated handler so they always show in the terminal
 log = logging.getLogger("viber_agent.ocr")
@@ -91,7 +95,7 @@ def _require_api_key():
     """If AGENT_API_KEY is set, require X-API-Key or Authorization: Bearer for protected routes."""
     if not AGENT_API_KEY:
         return None
-    if request.method == "OPTIONS" or request.path == "/health":
+    if request.method == "OPTIONS" or request.path in ("/health", "/api", "/api/v1", "/openapi.json", "/docs"):
         return None
     key = request.headers.get("X-API-Key", "").strip()
     if not key and request.headers.get("Authorization", "").startswith("Bearer "):
@@ -112,14 +116,23 @@ VIBER_EXE = os.environ.get("VIBER_EXE") or os.path.expandvars(
     r"%LOCALAPPDATA%\Viber\Viber.exe"
 )
 
+# Load .env again so keys are definitely available (e.g. when run from another cwd)
+_load_env()
+
 # OpenAI API key for GPT Vision OCR. Set in .env only.
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 
 # Optional: require X-API-Key header for agent endpoints. Set AGENT_API_KEY on agent and in Vercel (for proxy).
 AGENT_API_KEY = os.environ.get("AGENT_API_KEY", "").strip()
 
+API_VERSION = "1.0"
+
 if HAS_OPENAI:
-    print("[viber-agent] OPENAI_API_KEY:", "set" if OPENAI_API_KEY else "not set", flush=True)
+    if OPENAI_API_KEY:
+        print("[viber-agent] OPENAI_API_KEY: set", flush=True)
+    else:
+        _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+        print("[viber-agent] OPENAI_API_KEY: not set (add to %s)" % _env_path, flush=True)
 
 
 def _get_openai_key() -> str:
@@ -839,6 +852,101 @@ def health():
     )
 
 
+@app.route("/api", methods=["GET"])
+@app.route("/api/v1", methods=["GET"])
+def api_info():
+    """API info and discovery."""
+    base = request.url_root.rstrip("/")
+    return jsonify(
+        name="Viber Agent API",
+        version=API_VERSION,
+        docs="%s/docs" % base,
+        openapi="%s/openapi.json" % base,
+        endpoints={
+            "health": {"method": "GET", "path": "/health", "description": "Service health and capabilities"},
+            "lookup": {"method": "POST", "path": "/check-number-base64", "description": "Look up a number and get contact name + panel image (base64)"},
+            "send_message": {"method": "POST", "path": "/send-message", "description": "Send a message to a number via Viber"},
+        },
+    )
+
+
+def _openapi_spec():
+    base = request.url_root.rstrip("/")
+    return {
+        "openapi": "3.0.3",
+        "info": {"title": "Viber Agent API", "version": API_VERSION, "description": "Automate Viber lookups and send messages via this agent (runs on Windows with Viber desktop)."},
+        "servers": [{"url": base}],
+        "paths": {
+            "/health": {
+                "get": {
+                    "summary": "Health check",
+                    "operationId": "health",
+                    "responses": {"200": {"description": "OK", "content": {"application/json": {"schema": {"type": "object", "properties": {"status": {"type": "string"}, "viber_exists": {"type": "boolean"}, "ocr": {"type": "boolean"}}}}}}},
+                }
+            },
+            "/check-number-base64": {
+                "post": {
+                    "summary": "Look up number",
+                    "operationId": "lookup",
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {"type": "object", "required": ["number"], "properties": {"number": {"type": "string", "description": "Phone number"}, "only_panel": {"type": "boolean", "default": True}}}}}},
+                    "responses": {
+                        "200": {"description": "OK", "content": {"application/json": {"schema": {"type": "object", "properties": {"number": {}, "contact_name": {}, "panel_base64": {}, "panel_text": {}}}}}},
+                        "400": {"description": "Bad request", "content": {"application/json": {"schema": {"type": "object", "properties": {"error": {"type": "string"}}}}}},
+                        "500": {"description": "Server error", "content": {"application/json": {"schema": {"type": "object", "properties": {"error": {"type": "string"}}}}}},
+                    },
+                }
+            },
+            "/send-message": {
+                "post": {
+                    "summary": "Send message",
+                    "operationId": "sendMessage",
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {"type": "object", "required": ["number", "message"], "properties": {"number": {"type": "string"}, "message": {"type": "string"}}}}}},
+                    "responses": {
+                        "200": {"description": "OK", "content": {"application/json": {"schema": {"type": "object", "properties": {"ok": {"type": "boolean"}, "number": {"type": "string"}}}}}},
+                        "400": {"description": "Bad request"},
+                        "500": {"description": "Server error"},
+                    },
+                }
+            },
+        },
+        "components": {"securitySchemes": {"apiKey": {"type": "apiKey", "in": "header", "name": "X-API-Key", "description": "Required if AGENT_API_KEY is set on the server"}}, "security": []},
+    }
+
+
+@app.route("/openapi.json", methods=["GET"])
+def openapi_json():
+    return jsonify(_openapi_spec())
+
+
+@app.route("/docs", methods=["GET"])
+def docs():
+    """Serve Swagger UI for the API."""
+    html = """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Viber Agent API – Docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    SwaggerUIBundle({
+      url: "%s/openapi.json",
+      dom_id: "#swagger-ui",
+      presets: [SwaggerUIBundle.presets.apis],
+    });
+  </script>
+</body>
+</html>""" % request.url_root.rstrip("/")
+    return Response(html, mimetype="text/html")
+
+
 @app.route("/check-number", methods=["POST"])
 def check_number():
     """
@@ -967,5 +1075,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Viber screenshot agent")
     parser.add_argument("--host", default="0.0.0.0", help="Listen on this host (0.0.0.0 = all interfaces)")
     parser.add_argument("--port", type=int, default=5050, help="Port to listen on")
+    parser.add_argument("--dev", action="store_true", help="Use Flask dev server (default: use Waitress if installed)")
     args = parser.parse_args()
-    app.run(host=args.host, port=args.port, debug=False, threaded=True)
+    try:
+        if args.dev:
+            raise ImportError("use Flask")
+        import waitress
+        print("[viber-agent] Using Waitress WSGI server", flush=True)
+        waitress.serve(app, host=args.host, port=args.port, threads=6)
+    except ImportError:
+        app.run(host=args.host, port=args.port, debug=False, threaded=True)

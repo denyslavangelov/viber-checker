@@ -6,3 +6,4 @@ Pillow>=9.0.0
 pywin32>=306
 pywinauto>=0.6.8
 openai>=1.0.0
+waitress>=2.0
