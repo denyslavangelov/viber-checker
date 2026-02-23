@@ -13,6 +13,14 @@ import base64
 import uuid
 import webbrowser
 
+# Load .env from project root (same folder as agent.py) so OPENAI_API_KEY etc. can be set there
+try:
+    from dotenv import load_dotenv
+    _agent_dir = os.path.dirname(os.path.abspath(__file__))
+    load_dotenv(os.path.join(_agent_dir, ".env"))
+except ImportError:
+    pass
+
 # OCR debug logs: use a dedicated handler so they always show in the terminal
 log = logging.getLogger("viber_agent.ocr")
 log.setLevel(logging.DEBUG)
@@ -75,8 +83,8 @@ VIBER_EXE = os.environ.get("VIBER_EXE") or os.path.expandvars(
     r"%LOCALAPPDATA%\Viber\Viber.exe"
 )
 
-# OpenAI API key for GPT Vision OCR. Prefer env OPENAI_API_KEY; set here to hardcode (do not commit to git).
-OPENAI_API_KEY = "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"  # e.g. "sk-proj-..."
+# OpenAI API key for GPT Vision OCR. Set in .env as OPENAI_API_KEY=sk-proj-...
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 
 def _get_openai_key() -> str:
