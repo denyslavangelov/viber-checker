@@ -43,7 +43,7 @@ export default function Home() {
   const hasResult = !!(panelImage || contactName || lookedUpNumber);
   const showSendForm = mode === "send" && !hasResult && !sendSuccess;
   const showSendSuccess = mode === "send" && sendSuccess;
-  const baseUrl = agentUrl.trim().replace(/\/$/, "") || "";
+  const baseUrl = agentUrl.trim().replace(/\/$/, "") || "http://YOUR_AGENT:5050";
 
   async function copyToClipboard(text: string, id: string) {
     try {
@@ -214,7 +214,7 @@ export default function Home() {
               <div className="px-4 sm:px-6 md:px-9 py-5 sm:py-6 border-t border-white/[0.08] space-y-5">
                 <p className="text-sm text-white/60">Base URL (използва се за всички заявки):</p>
                 <div className="rounded-xl bg-black/30 border border-white/[0.08] px-3 py-2.5 font-mono text-sm text-white/90 break-all">
-                  {baseUrl || "—"}
+                  {agentUrl.trim().replace(/\/$/, "") || "—"}
                 </div>
                 <div className="space-y-4">
                   <div>
@@ -402,33 +402,35 @@ export default function Home() {
               </div>
             )}
 
-            <div className="px-4 sm:px-6 md:px-9 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-              {hasResult ? (
-                <button
-                  type="button"
-                  onClick={handleCheckAnother}
-                  className="w-full rounded-xl border border-white/20 bg-white/5 py-3.5 sm:py-3 font-semibold text-white hover:bg-white/10 active:scale-[0.99] transition-all duration-200 min-h-[48px] touch-manipulation"
-                >
-                  Провери друг номер
-                </button>
-              ) : showSendSuccess ? (
-                <button
-                  type="button"
-                  onClick={handleSendAnother}
-                  className="w-full rounded-xl border border-white/20 bg-white/5 py-3.5 sm:py-3 font-semibold text-white hover:bg-white/10 active:scale-[0.99] transition-all duration-200 min-h-[48px] touch-manipulation"
-                >
-                  Изпрати друго
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full rounded-xl bg-white py-3.5 sm:py-3 font-semibold text-black hover:bg-white/95 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 transition-all duration-200 min-h-[48px] touch-manipulation"
-                >
-                  {loading ? "…" : mode === "send" ? "Изпрати" : "Търси"}
-                </button>
-              )}
-            </div>
+            {mode !== "api" && (
+              <div className="px-4 sm:px-6 md:px-9 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+                {hasResult ? (
+                  <button
+                    type="button"
+                    onClick={handleCheckAnother}
+                    className="w-full rounded-xl border border-white/20 bg-white/5 py-3.5 sm:py-3 font-semibold text-white hover:bg-white/10 active:scale-[0.99] transition-all duration-200 min-h-[48px] touch-manipulation"
+                  >
+                    Провери друг номер
+                  </button>
+                ) : showSendSuccess ? (
+                  <button
+                    type="button"
+                    onClick={handleSendAnother}
+                    className="w-full rounded-xl border border-white/20 bg-white/5 py-3.5 sm:py-3 font-semibold text-white hover:bg-white/10 active:scale-[0.99] transition-all duration-200 min-h-[48px] touch-manipulation"
+                  >
+                    Изпрати друго
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full rounded-xl bg-white py-3.5 sm:py-3 font-semibold text-black hover:bg-white/95 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 transition-all duration-200 min-h-[48px] touch-manipulation"
+                  >
+                    {loading ? "…" : mode === "send" ? "Изпрати" : "Търси"}
+                  </button>
+                )}
+              </div>
+            )}
           </form>
         </div>
       </div>
