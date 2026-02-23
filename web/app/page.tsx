@@ -130,13 +130,8 @@ export default function Home() {
       }
 
       const name = (data.contact_name ?? "").trim();
-      if (!name) {
-        setError("Контактът не беше намерен.");
-        return;
-      }
-
       if (data.panel_base64) setPanelImage(data.panel_base64);
-      setContactName(name);
+      setContactName(name || null);
       setLookedUpNumber((data.number || number).trim());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Заявката не успя");
@@ -267,7 +262,7 @@ export default function Home() {
                   </div>
                 )}
                 <div className="flex flex-col min-w-0 flex-1 justify-center py-1 overflow-hidden w-full text-center sm:text-left">
-                  {contactName && (
+                  {(contactName || panelImage || lookedUpNumber) && (
                     <div
                       className="flex items-center justify-center sm:justify-start gap-3 sm:gap-4 min-h-[2.5rem] sm:min-h-[3.375rem] animate-slide-in-right opacity-0"
                       style={{ animationDelay: "0.15s", animationFillMode: "both" }}
@@ -282,12 +277,12 @@ export default function Home() {
                       >
                         <UserIcon ref={userIconRef} size={24} strokeWidth={2} />
                       </span>
-                      <p className="text-xl sm:text-2xl md:text-3xl font-semibold text-white tracking-tight truncate leading-tight">
-                        {contactName}
+                      <p className={`text-xl sm:text-2xl md:text-3xl font-semibold tracking-tight truncate leading-tight ${contactName ? "text-white" : "text-white/50"}`}>
+                        {contactName || "Контактът не беше намерен"}
                       </p>
                     </div>
                   )}
-                  {contactName && lookedUpNumber && (
+                  {(contactName || panelImage) && lookedUpNumber && (
                     <div
                       className="my-2 sm:my-2.5 h-px bg-white/[0.08] animate-line-expand opacity-0"
                       style={{ animationDelay: "0.3s", animationFillMode: "both" }}

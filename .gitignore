@@ -42,6 +42,12 @@ npm-debug.log*
 # Local tools (download ngrok into tools/ per tools/README.md)
 tools/ngrok.exe
 
+# Last capture (saved for debugging; may contain contact data)
+last_panel.png
+last_window.png
+panel_debug.png
+viber_uia_tree.txt
+
 # Optional
 *.bak
 .coverage

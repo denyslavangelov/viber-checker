@@ -38,6 +38,53 @@ If your VPS is **Linux**, you have two options:
 - Install and **log in with your phone number** (QR or code). The agent will use this account to open chats and send messages.
 - Leave Viber running (or allow it to start when you open a chat link). You can minimize it.
 
+**Screenshots only when the session is “visible” (RDP)**
+
+- When you **disconnect** from RDP or **minimize** the RDP window so you’re not viewing the VPS desktop, Windows often **stops drawing** the remote session. The agent can still “see” the Viber window (pywinauto finds it), but the screen capture (mss) may get a black or empty frame because nothing is being rendered.
+- **Workaround:** Keep an RDP connection **open** to the VPS while you need lookups/screenshots (you can minimize the RDP window on your side—what matters is that the session is still active and, ideally, the desktop is being composed). Avoid **logging off** or **disconnecting** RDP if you want screenshots to work.
+- If you must disconnect, you may need a **virtual display** or “session keep-alive” so Windows keeps rendering the desktop; that’s more advanced and not covered here.
+
+**Send message requires the session in the foreground (RDP)**
+
+- **"Send message"** uses Windows keyboard injection (SendInput). When RDP is **disconnected** or you are **not viewing** the VPS desktop, the session does not accept keyboard input, so the agent may report "SendInput() inserted only 0 out of N events" and the message is not typed.
+- **Workaround:** For "Send message" to work, you must **have RDP connected and be viewing the VPS** (the Viber window in the foreground or the session at least visible). There is no programmatic workaround for sending keys to a disconnected RDP session.
+
+**Screenshots with nobody viewing: virtual display**
+
+If you will **never** have RDP open while the agent runs, Windows does not draw the desktop and mss captures a black frame. Install a **virtual display driver** so Windows always has a fake monitor and keeps rendering. Steps for **IddSampleDriver**:
+
+1. **Download**  
+   Go to [https://github.com/roshkins/IddSampleDriver/releases](https://github.com/roshkins/IddSampleDriver/releases), download the latest release (e.g. **0.1.1** or **0.0.1**) as a **ZIP**, and extract it to a folder on the VPS (e.g. `C:\IddSampleDriver`).  
+   The **.inf** file is named **IddSampleDriver.inf**. It may be in the **root** of the extracted folder or inside an **IddSampleDriver** subfolder (e.g. `C:\IddSampleDriver\IddSampleDriver.inf` or `C:\IddSampleDriver\IddSampleDriver\IddSampleDriver.inf`). Use **Have Disk → Browse** to that file.
+
+2. **Install the certificate (run as Administrator)**  
+   Open **Command Prompt** or **PowerShell as Administrator**, `cd` into the extracted folder, then run the included **.bat** file.  
+   If the .bat fails, run these instead (replace with the real certificate filename if different):
+   ```cmd
+   certutil -addstore -f root IddSampleDriver.cer
+   certutil -addstore -f TrustedPublisher IddSampleDriver.cer
+   ```
+
+3. **Add the driver via Device Manager**  
+   - Press **Win + X** → **Device Manager**.
+   - **Important:** Click the **computer name** at the very top of the tree (e.g. "DESKTOP-XXX" or your PC name). The "Add legacy hardware" option only appears when this root is selected.
+   - Menu **Action** → **Add legacy hardware**.
+   - **Next** → **Install the hardware that I manually select (Advanced)** → **Next**.
+   - Select **Display adapters** → **Next**.
+   - Click **Have Disk...** → **Browse...** and select the **.inf** file in the extracted folder (e.g. `IddSampleDriver.inf`) → **OK** → **Next**.
+   - Complete the wizard (Next → Finish). Windows may install one or more virtual display adapters.
+
+   **If "Add legacy hardware" is not in the Action menu at all** (e.g. on some Windows 11 builds), try installing from an **elevated Command Prompt** (Run as administrator) from the extracted folder:
+   ```cmd
+   pnputil /add-driver IddSampleDriver.inf /install
+   ```
+   Then reboot. If that fails, check the driver’s GitHub issues for your Windows version.
+
+4. **Reboot** the VPS.
+
+5. **Display settings**  
+   After reboot, open **Settings → System → Display**. You should see extra virtual monitor(s). You can set resolution and set “Extend” or “Duplicate” so the session keeps drawing to them. Once the virtual display is active, the agent’s mss capture will get real pixels even when no one is connected via RDP.
+
 **Copy the project to the VPS**
 
 - Option A: Clone from GitHub (if the repo is pushed):

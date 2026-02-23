@@ -31,7 +31,7 @@ log.propagate = False
 
 from flask import Flask, request, jsonify, Response, send_file
 
-# Screenshot (pip install mss)
+# Screenshot: mss (screen grab) + optional PrintWindow (window buffer, works when RDP disconnected)
 try:
     import mss
     import mss.tools
@@ -39,13 +39,28 @@ try:
 except ImportError:
     HAS_MSS = False
 
+try:
+    import ctypes
+    from ctypes import wintypes
+    _user32 = ctypes.windll.user32
+    _PrintWindow = _user32.PrintWindow
+    _PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
+    _PrintWindow.restype = wintypes.BOOL
+    PW_DEFAULT = 0
+    PW_RENDERFULLCONTENT = 2
+    HAS_PRINTWINDOW = True
+except Exception:
+    HAS_PRINTWINDOW = False
+
 # Window bounds + close app (pip install pywinauto)
 try:
     from pywinauto import Application
+    from pywinauto import findwindows
     from pywinauto.keyboard import send_keys as _keyboard_send_keys
     HAS_PYWINAUTO = True
 except ImportError:
     HAS_PYWINAUTO = False
+    findwindows = None  # type: ignore
     _keyboard_send_keys = None
 
 # OCR: GPT Vision only (set OPENAI_API_KEY)
@@ -67,8 +82,22 @@ def _cors(resp):
     """Allow the Next.js app (different origin) to call this API."""
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-Key, Authorization"
     return resp
+
+
+@app.before_request
+def _require_api_key():
+    """If AGENT_API_KEY is set, require X-API-Key or Authorization: Bearer for protected routes."""
+    if not AGENT_API_KEY:
+        return None
+    if request.method == "OPTIONS" or request.path == "/health":
+        return None
+    key = request.headers.get("X-API-Key", "").strip()
+    if not key and request.headers.get("Authorization", "").startswith("Bearer "):
+        key = request.headers.get("Authorization", "").replace("Bearer ", "", 1).strip()
+    if key != AGENT_API_KEY:
+        return jsonify(error="Unauthorized"), 401
 
 
 @app.route("/check-number", methods=["OPTIONS"])
@@ -83,27 +112,39 @@ VIBER_EXE = os.environ.get("VIBER_EXE") or os.path.expandvars(
     r"%LOCALAPPDATA%\Viber\Viber.exe"
 )
 
-# OpenAI API key for GPT Vision OCR. Set in .env as OPENAI_API_KEY=sk-proj-...
+# OpenAI API key for GPT Vision OCR. Set in .env only.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+# Optional: require X-API-Key header for agent endpoints. Set AGENT_API_KEY on agent and in Vercel (for proxy).
+AGENT_API_KEY = os.environ.get("AGENT_API_KEY", "").strip()
+
+if HAS_OPENAI:
+    print("[viber-agent] OPENAI_API_KEY:", "set" if OPENAI_API_KEY else "not set", flush=True)
 
 
 def _get_openai_key() -> str:
     return OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY", "")
 
 # Delays (seconds) — tune for your PC (increase if "internet needed" or empty panel)
-INITIAL_WAIT = float(os.environ.get("INITIAL_WAIT", "1.0"))  # after opening link, before first window poll
-PANEL_LOAD_WAIT = float(os.environ.get("PANEL_LOAD_WAIT", "1.0"))  # after window found, before capture
+INITIAL_WAIT = float(os.environ.get("INITIAL_WAIT", "0.25"))  # after opening link, before first window poll
+PANEL_LOAD_WAIT = float(os.environ.get("PANEL_LOAD_WAIT", "0.5"))  # after window found, before capture
 WINDOW_WAIT_TIMEOUT = 14  # max seconds to wait for Viber window to appear
-WINDOW_POLL_INTERVAL = 0.25  # between poll attempts
-CONNECT_TIMEOUT = float(os.environ.get("CONNECT_TIMEOUT", "0.5"))  # fail fast when Viber not ready
-RETRY_EXTRA_WAIT = 1.5  # before retry if window not found
+WINDOW_POLL_INTERVAL = 0.10  # between poll attempts (smaller = find window sooner once it's ready)
+CONNECT_TIMEOUT = float(os.environ.get("CONNECT_TIMEOUT", "0.25"))  # fail fast when Viber not ready
+RETRY_EXTRA_WAIT = 1.0  # before retry if window not found
+SKIP_FIX_NAME = os.environ.get("SKIP_FIX_NAME", "0").strip().lower() in ("1", "true", "yes")  # skip GPT fix-name call to save ~0.8s
 MESSAGE_INPUT_WAIT = 2.0  # after chat opens, before typing (so input is focused)
 
-# Right panel crop: the highlighted part (large contact photo + name + icons)
-# Measured in Paint: 300×255, top padding is correct.
-PANEL_WIDTH = 300
-PANEL_TOP = 40  # skip top of window (title bar, Viber Out, settings)
-PANEL_HEIGHT = 240
+# Panel crop: RIGHT side. Skip PANEL_TOP + PANEL_STRIP_TOP from window top (removes white bar), then 290×280.
+PANEL_TOP = int(os.environ.get("PANEL_TOP", "40"))
+PANEL_STRIP_TOP = int(os.environ.get("PANEL_STRIP_TOP", "30"))  # extra px to skip from top (strips white bar)
+PANEL_WIDTH = int(os.environ.get("PANEL_WIDTH", "290"))
+PANEL_HEIGHT = int(os.environ.get("PANEL_HEIGHT", "250"))
+PANEL_LEFT = os.environ.get("PANEL_LEFT", "0").strip().lower() in ("1", "true", "yes")  # 0 = right side (default), 1 = left
+PANEL_USE_FULL_WIDTH = os.environ.get("PANEL_USE_FULL_WIDTH", "0").strip().lower() in ("1", "true", "yes")
+# If PrintWindow panel PNG is smaller than this, treat as likely blank and fall back to mss
+PANEL_MIN_BYTES = 20_000
+DEBUG_SAVE_PANEL = os.environ.get("DEBUG_SAVE_PANEL", "").strip().lower() in ("1", "true", "yes")
 
 # Approximate OpenAI pricing USD per 1M tokens (for cost log)
 _OPENAI_PRICE_PER_1M = {
@@ -124,6 +165,47 @@ def _api_cost_usd(model: str, prompt_tokens: int, completion_tokens: int) -> flo
     return (prompt_tokens * in_p + completion_tokens * out_p) / 1_000_000
 
 
+# Strings we never treat as a person's name (app labels, UI text, etc.)
+_NOT_PERSON_NAMES = frozenset({
+    "viber out", "viber", "chat", "no name found", "no name", "unknown", "contact",
+    "no contact", "no contact found", "n/a", "—", "-", ""
+})
+
+
+def _is_plausible_person_name(name: str) -> bool:
+    """
+    Return True only if the string looks like a real person's name.
+    Rejects app labels, numbers, single chars, and obvious non-names so we return "no contact" when appropriate.
+    """
+    if not name or not isinstance(name, str):
+        return False
+    s = name.strip()
+    if len(s) < 2 or len(s) > 80:
+        return False
+    if s.lower() in _NOT_PERSON_NAMES:
+        return False
+    # Reject if it's mostly digits (e.g. phone number)
+    letters = sum(1 for c in s if c.isalpha())
+    if letters < 2 or letters < len(s) * 0.5:
+        return False
+    # Reject if it's a single repeated character or no letters
+    if not any(c.isalpha() for c in s):
+        return False
+    return True
+
+
+def _looks_like_clean_name(s: str) -> bool:
+    """True if s looks like a single name (letters, spaces, hyphen; 2–50 chars) — skip fix API to save time."""
+    if not s or len(s) < 2 or len(s) > 50:
+        return False
+    for c in s:
+        if c in (" ", "-", "'"):
+            continue
+        if not c.isalpha():
+            return False
+    return True
+
+
 def gpt_fix_contact_name(raw_name: str) -> str:
     """
     Ask GPT to correct the name: proper Cyrillic spelling, valid person's name. Returns corrected name or "".
@@ -140,12 +222,10 @@ def gpt_fix_contact_name(raw_name: str) -> str:
                 {
                     "role": "user",
                     "content": (
-                        "This is a contact name extracted from a messaging app image. It may be mixed Latin/Cyrillic or have OCR errors.\n\n"
+                        "This is text extracted from a messaging app as a possible contact name. It may be mixed Latin/Cyrillic or have OCR errors.\n\n"
                         "Tasks:\n"
-                        "1. Convert to correct Cyrillic if it should be Cyrillic (e.g. Bulgarian, Russian names).\n"
-                        "2. Fix any spelling mistakes and ensure it looks like a real person's name (first name, optionally last name).\n"
-                        "3. Reply with ONLY the corrected name, nothing else. No quotes, no explanation.\n"
-                        "4. If the input is clearly not a person's name (garbage, placeholder, etc.), reply with exactly: No name found\n\n"
+                        "1. If the input is a real person's name (first/last name): convert to correct Cyrillic if needed, fix spelling, reply with ONLY that name. No quotes.\n"
+                        "2. If the input is NOT a person's name (e.g. 'Viber Out', app label, button text, phone number, 'Chat', placeholder, garbage), reply with exactly: No name found\n\n"
                         f"Input: {raw_name}"
                     ),
                 }
@@ -190,7 +270,11 @@ def ocr_image_gpt(png_bytes: bytes) -> tuple[str, str]:
                     "content": [
                         {
                             "type": "text",
-                            "text": "Look at this image from a messaging app contact panel. Extract all visible text. On the first line write only the contact name (the person's name). On the next line write a dash, then on the following lines list any other text you see. If there is no clear name, write 'No name found' on the first line.",
+                            "text": (
+                                "This image is a crop from a Viber chat window (right-side panel). The CONTACT NAME (the person's name) is in the BOTTOM-LEFT of this image. "
+                                "Your task: On the FIRST line write ONLY the real person's name (first/last name). On the next line write a dash '-', then list any other text. "
+                                "If you only see app labels (e.g. 'Viber Out', buttons, icons) or no clear person name, write 'No name found' on the first line."
+                            ),
                         },
                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
                     ],
@@ -207,12 +291,23 @@ def ocr_image_gpt(png_bytes: bytes) -> tuple[str, str]:
         else:
             _log_step("GPT Vision OCR (API)", elapsed)
         log.debug("GPT raw=%r", raw[:300] if len(raw) > 300 else raw)
-        lines = raw.splitlines()
+        lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
         contact_name = ""
-        if lines:
-            first = lines[0].strip()
-            if first and first.lower() != "no name found":
-                contact_name = gpt_fix_contact_name(first)
+        # First line is the contact name; skip only obvious non-names
+        _skip = {"", "no name found", "-", "viber out", "viber"}
+        for line in lines:
+            if line.lower() in _skip:
+                continue
+            line = line.strip()
+            if SKIP_FIX_NAME or _looks_like_clean_name(line):
+                contact_name = line
+                log.debug("OCR name used as-is (skip fix): %r", contact_name)
+            else:
+                contact_name = gpt_fix_contact_name(line)
+            if not _is_plausible_person_name(contact_name):
+                log.debug("OCR name rejected (not a person name): %r", contact_name)
+                contact_name = ""
+            break
         return raw, contact_name
     except Exception as e:
         log.exception("GPT OCR failed: %s", e)
@@ -263,6 +358,7 @@ def connect_to_viber_window():
     Wait for Viber window to appear and return (Application, window_rect_dict) for mss.
     rect_dict is {"left", "top", "width", "height"} in screen coordinates.
     Returns (None, None, error_str) on failure.
+    Uses find_windows() + connect(handle=) first (fast Win32 enum); falls back to UIA connect(path=) if needed.
     """
     if not HAS_PYWINAUTO or not os.path.isfile(VIBER_EXE):
         return None, None, "pywinauto not installed or Viber path not found"
@@ -270,14 +366,38 @@ def connect_to_viber_window():
     deadline = time.monotonic() + WINDOW_WAIT_TIMEOUT
     while time.monotonic() < deadline:
         try:
-            app = Application(backend="uia").connect(path=VIBER_EXE, timeout=CONNECT_TIMEOUT)
+            # Fast path: find window by title via Win32 (lightweight), then connect by handle
+            if findwindows is not None:
+                handles = findwindows.find_windows(title_re=".*Viber.*")
+                if handles:
+                    app = Application(backend="win32").connect(handle=handles[0])
+                    dlg = app.window(handle=handles[0])
+                    try:
+                        dlg.restore()
+                        dlg.set_focus()
+                    except Exception:
+                        pass
+                    time.sleep(0.12)
+                    rect = dlg.rectangle()
+                    left = int(rect.left)
+                    top = int(rect.top)
+                    width = int(rect.right - rect.left)
+                    height = int(rect.bottom - rect.top)
+                    if width > 0 and height > 0:
+                        rect_dict = {"left": left, "top": top, "width": width, "height": height}
+                        return app, rect_dict, None
+            # Fallback: UIA connect by title or path (can be slow on VPS)
+            try:
+                app = Application(backend="uia").connect(title_re=".*Viber.*", timeout=CONNECT_TIMEOUT)
+            except Exception:
+                app = Application(backend="uia").connect(path=VIBER_EXE, timeout=CONNECT_TIMEOUT)
             dlg = app.top_window()
             try:
-                dlg.restore()  # un-minimize if minimized
-                dlg.set_focus()  # bring to foreground so we capture the right content
+                dlg.restore()
+                dlg.set_focus()
             except Exception:
                 pass
-            time.sleep(0.3)  # let window come to front
+            time.sleep(0.12)
             rect = dlg.rectangle()
             left = int(rect.left)
             top = int(rect.top)
@@ -293,23 +413,137 @@ def connect_to_viber_window():
     return None, None, f"Viber window did not appear within {WINDOW_WAIT_TIMEOUT}s"
 
 
+def _save_last_capture(panel_png: bytes | None, window_png: bytes | None) -> None:
+    """Always save last capture to last_panel.png / last_window.png; log success or failure."""
+    _agent_dir = os.path.dirname(os.path.abspath(__file__))
+    if panel_png is None:
+        print("[viber-agent] WARNING: no panel image — nothing to save as last_panel.png", flush=True)
+    else:
+        try:
+            _path = os.path.join(_agent_dir, "last_panel.png")
+            with open(_path, "wb") as f:
+                f.write(panel_png)
+            print("[viber-agent] last_panel.png saved: %s (%s bytes)" % (_path, len(panel_png)), flush=True)
+        except Exception as e:
+            print("[viber-agent] ERROR: could not save last_panel.png — %s" % e, flush=True)
+    if window_png is None:
+        print("[viber-agent] (no full window this run; only_panel=true or no window capture)", flush=True)
+    else:
+        try:
+            _path = os.path.join(_agent_dir, "last_window.png")
+            with open(_path, "wb") as f:
+                f.write(window_png)
+            print("[viber-agent] last_window.png saved: %s (%s bytes)" % (_path, len(window_png)), flush=True)
+        except Exception as e:
+            print("[viber-agent] ERROR: could not save last_window.png — %s" % e, flush=True)
+
+
 def _panel_rect_from_window(rect_dict: dict) -> dict:
-    """Crop region for the right panel: large contact photo + name + icon row (highlighted part)."""
+    """Crop region for the panel: RIGHT side, PANEL_TOP+PANEL_STRIP_TOP below top (no white bar), PANEL_WIDTH×PANEL_HEIGHT."""
     left = rect_dict["left"]
     top = rect_dict["top"]
     width = rect_dict["width"]
     height = rect_dict["height"]
-    # Right panel: fixed width from right edge, skip top strip
-    panel_left = left + width - PANEL_WIDTH
-    panel_top = top + PANEL_TOP
-    panel_left = max(left, panel_left)
+    panel_top = top + PANEL_TOP + PANEL_STRIP_TOP
     panel_top = max(top, panel_top)
+    if PANEL_USE_FULL_WIDTH:
+        panel_left = left
+        panel_w = width
+    elif PANEL_LEFT:
+        panel_left = left
+        panel_w = min(PANEL_WIDTH, width)
+    else:
+        panel_left = left + width - PANEL_WIDTH
+        panel_left = max(left, panel_left)
+        panel_w = min(PANEL_WIDTH, left + width - panel_left)
     return {
         "left": panel_left,
         "top": panel_top,
-        "width": min(PANEL_WIDTH, left + width - panel_left),
+        "width": panel_w,
         "height": min(PANEL_HEIGHT, top + height - panel_top),
     }
+
+
+def _capture_window_printwindow(hwnd: int, rect_dict: dict) -> tuple[bytes | None, bytes | None]:
+    """
+    Capture window via PrintWindow (window draws into a buffer). Works when RDP is disconnected.
+    Returns (window_png_bytes, panel_png_bytes). Returns (None, None) on failure.
+    """
+    if not HAS_PRINTWINDOW:
+        return None, None
+    try:
+        from PIL import Image
+        import win32gui
+        import win32ui
+    except ImportError:
+        return None, None
+
+    w, h = rect_dict["width"], rect_dict["height"]
+    if w <= 0 or h <= 0:
+        return None, None
+
+    try:
+        hwnd_dc = win32gui.GetWindowDC(hwnd)
+        if not hwnd_dc:
+            return None, None
+        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
+        save_dc = mfc_dc.CreateCompatibleDC()
+        bitmap = win32ui.CreateBitmap()
+        bitmap.CreateCompatibleBitmap(mfc_dc, w, h)
+        save_dc.SelectObject(bitmap)
+
+        # Try flag 0 first (some apps render better), then 2 (PW_RENDERFULLCONTENT)
+        for pw_flag in (PW_DEFAULT, PW_RENDERFULLCONTENT):
+            result = _PrintWindow(hwnd, save_dc.GetSafeHdc(), pw_flag)
+            if not result:
+                continue
+            bmpinfo = bitmap.GetInfo()
+            bmpstr = bitmap.GetBitmapBits(True)
+            try:
+                im = Image.frombuffer(
+                    "RGB",
+                    (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
+                    bmpstr,
+                    "raw",
+                    "BGRX",
+                    0,
+                    1,
+                )
+            except Exception:
+                continue
+            buf = io.BytesIO()
+            im.save(buf, format="PNG")
+            window_png = buf.getvalue()
+            if PANEL_USE_FULL_WIDTH:
+                panel_w = w
+                panel_left = 0
+            elif PANEL_LEFT:
+                panel_w = min(PANEL_WIDTH, w)
+                panel_left = 0
+            else:
+                panel_w = min(PANEL_WIDTH, w)
+                panel_left = max(0, w - PANEL_WIDTH)
+            crop_top = min(PANEL_TOP + PANEL_STRIP_TOP, h - 1)
+            panel_h = min(PANEL_HEIGHT, h - crop_top)
+            if panel_w <= 0 or panel_h <= 0:
+                win32gui.ReleaseDC(hwnd, hwnd_dc)
+                save_dc.DeleteDC()
+                return window_png, None
+            panel_im = im.crop((panel_left, crop_top, panel_left + panel_w, crop_top + panel_h))
+            buf2 = io.BytesIO()
+            panel_im.save(buf2, format="PNG")
+            panel_png = buf2.getvalue()
+            if len(panel_png) >= PANEL_MIN_BYTES:
+                win32gui.ReleaseDC(hwnd, hwnd_dc)
+                save_dc.DeleteDC()
+                return window_png, panel_png
+
+        win32gui.ReleaseDC(hwnd, hwnd_dc)
+        save_dc.DeleteDC()
+        return None, None
+    except Exception as e:
+        log.debug("PrintWindow capture failed: %s", e)
+        return None, None
 
 
 def do_viber_search_and_screenshot(
@@ -358,9 +592,44 @@ def do_viber_search_and_screenshot(
     time.sleep(PANEL_LOAD_WAIT)
     _log_step("panel load wait", time.monotonic() - t0)
 
-    # 5) Capture window + right panel (highlighted: photo + name + icons)
+    # 5) Capture window + right panel. Prefer PrintWindow (works when RDP disconnected); fallback to mss.
     t0 = time.monotonic()
+    window_png = None
+    panel_png = None
     try:
+        hwnd = None
+        try:
+            dlg = viber_app.top_window()
+            hwnd = getattr(dlg, "handle", None) or getattr(dlg, "handle_id", None)
+        except Exception:
+            pass
+
+        if hwnd and HAS_PRINTWINDOW:
+            window_png, panel_png = _capture_window_printwindow(hwnd, rect_dict)
+            if DEBUG_SAVE_PANEL and panel_png:
+                _debug_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "panel_debug.png")
+                try:
+                    with open(_debug_path, "wb") as f:
+                        f.write(panel_png)
+                    print("[viber-agent] DEBUG_SAVE_PANEL: saved to", _debug_path, flush=True)
+                except Exception as e:
+                    print("[viber-agent] DEBUG_SAVE_PANEL save failed:", e, flush=True)
+            # Use PrintWindow only if panel looks substantial (tiny PNG = likely blank/wrong)
+            use_pw = panel_png and len(panel_png) >= PANEL_MIN_BYTES
+            if only_panel and use_pw:
+                print("[viber-agent] screenshot capture (PrintWindow, works when RDP disconnected)", flush=True)
+                _log_step("screenshot capture (PrintWindow)", time.monotonic() - t0)
+                _save_last_capture(panel_png, None)
+                return None, panel_png, None
+            if not only_panel and window_png and use_pw:
+                print("[viber-agent] screenshot capture (PrintWindow, works when RDP disconnected)", flush=True)
+                _log_step("screenshot capture (PrintWindow)", time.monotonic() - t0)
+                _save_last_capture(panel_png, window_png)
+                return window_png, panel_png, None
+            if panel_png and len(panel_png) < PANEL_MIN_BYTES:
+                print("[viber-agent] PrintWindow panel too small (%s bytes), using mss fallback" % len(panel_png), flush=True)
+
+        # Fallback: mss (screen grab; requires session to be drawn, e.g. RDP connected)
         with mss.mss() as sct:
             panel_rect = _panel_rect_from_window(rect_dict)
             if only_panel:
@@ -368,15 +637,15 @@ def do_viber_search_and_screenshot(
                     return None, None, "Panel region invalid"
                 panel_shot = sct.grab(panel_rect)
                 panel_png = mss.tools.to_png(panel_shot.rgb, panel_shot.size)
-                return None, panel_png, None
-            # Full window + panel
-            shot = sct.grab(rect_dict)
-            window_png = mss.tools.to_png(shot.rgb, shot.size)
-            if panel_rect["width"] > 0 and panel_rect["height"] > 0:
-                panel_shot = sct.grab(panel_rect)
-                panel_png = mss.tools.to_png(panel_shot.rgb, panel_shot.size)
+                window_png = None
             else:
-                panel_png = None
+                shot = sct.grab(rect_dict)
+                window_png = mss.tools.to_png(shot.rgb, shot.size)
+                if panel_rect["width"] > 0 and panel_rect["height"] > 0:
+                    panel_shot = sct.grab(panel_rect)
+                    panel_png = mss.tools.to_png(panel_shot.rgb, panel_shot.size)
+                else:
+                    panel_png = None
     finally:
         _log_step("screenshot capture", time.monotonic() - t0)
         # 6) Close Viber window (leave process running, e.g. in tray)
@@ -391,18 +660,88 @@ def do_viber_search_and_screenshot(
 
     _log_step("TOTAL (Viber + capture)", time.monotonic() - total_start)
     print("[viber-agent] --- lookup done ---", flush=True)
+
+    _save_last_capture(panel_png, window_png)
     return window_png, panel_png, None
+
+
+def _send_message_via_uia(hwnd: int, message: str) -> str | None:
+    """
+    Use UI Automation: set text on the chat Edit and invoke Send button.
+    Works without keyboard focus (e.g. when RDP is disconnected). Returns None on success, error string on failure.
+    """
+    try:
+        time.sleep(1.5)  # let chat UI finish loading before querying UIA
+        app_uia = Application(backend="uia").connect(handle=hwnd)
+        dlg = app_uia.window(handle=hwnd)
+        if os.environ.get("DEBUG_UIA_DUMP", "").strip().lower() in ("1", "true", "yes"):
+            _agent_dir = os.path.dirname(os.path.abspath(__file__))
+            path = os.path.join(_agent_dir, "viber_uia_tree.txt")
+            try:
+                dlg.print_control_identifiers(depth=None, filename=path)
+                print("[viber-agent] UIA tree dumped to %s" % path, flush=True)
+            except Exception as dump_err:
+                print("[viber-agent] UIA dump failed: %s" % dump_err, flush=True)
+        # Message input: Viber's typing box is the Edit whose automation_id contains QQuickTextEdit (UIA tree).
+        # Send button: automation_id contains SendToolbarButton. UIA backend has no auto_id_re, so match from descendants.
+        def _auto_id(ctrl):
+            try:
+                return getattr(getattr(ctrl, "element_info", None), "automation_id", None) or ""
+            except Exception:
+                return ""
+
+        edit = None
+        for c in dlg.descendants(control_type="Edit"):
+            if "QQuickTextEdit" in _auto_id(c):
+                edit = c
+                break
+        if edit is None:
+            edits = dlg.descendants(control_type="Edit")
+            if not edits:
+                return "No Edit control found"
+            edit = edits[-1]
+        edit.set_focus()
+        edit.set_edit_text(message)
+        time.sleep(0.2)
+
+        send_btn = None
+        for b in dlg.descendants(control_type="Button"):
+            if "SendToolbarButton" in _auto_id(b):
+                send_btn = b
+                break
+        if send_btn is None:
+            for b in dlg.descendants(control_type="Button"):
+                try:
+                    if (b.window_text() or "").strip() in ("Send", "Изпрати", "Senden", "Envoyer", "Enviar"):
+                        send_btn = b
+                        break
+                except Exception:
+                    continue
+        if send_btn is None:
+            return "Send button not found"
+        try:
+            send_btn.invoke()
+        except Exception:
+            try:
+                send_btn.click()
+            except Exception as click_err:
+                return "Send button invoke/click failed: %s" % click_err
+        return None
+    except Exception as e:
+        return str(e)
 
 
 def do_viber_send_message(phone_number: str, message: str) -> str | None:
     """
-    Open Viber chat with the given number, type the message, send it (Enter), then close Viber.
+    Open Viber chat with the given number, type the message, send it, then close Viber.
+    Tries UIA first (Edit + Send button; works when RDP disconnected). Falls back to keyboard if UIA fails.
     Returns None on success, or an error message string.
     """
-    if not HAS_PYWINAUTO or _keyboard_send_keys is None:
+    if not HAS_PYWINAUTO:
         return "pywinauto not installed"
     if not message or not message.strip():
         return "Message is empty"
+    msg = message.strip()
 
     total_start = time.monotonic()
     print("[viber-agent] --- send message start ---", flush=True)
@@ -426,14 +765,56 @@ def do_viber_send_message(phone_number: str, message: str) -> str | None:
         pass
     time.sleep(MESSAGE_INPUT_WAIT)
 
+    hwnd = getattr(dlg, "handle", None) or getattr(dlg, "handle_id", None)
     t0 = time.monotonic()
-    try:
-        # Type message and Enter into the focused window (chat input)
-        _keyboard_send_keys(message.strip() + "{ENTER}", with_spaces=True)
-    except Exception as e:
+    sent = False
+
+    uia_error = None
+    if hwnd:
+        err_uia = _send_message_via_uia(hwnd, msg)
+        if err_uia is None:
+            sent = True
+            print("[viber-agent] send message via UIA (Edit + Send button)", flush=True)
+        else:
+            uia_error = err_uia
+            print("[viber-agent] UIA send failed: %s — falling back to keyboard" % (err_uia,), flush=True)
+
+    if not sent and _keyboard_send_keys is not None:
+        try:
+            import win32gui
+            if hwnd:
+                win32gui.SetForegroundWindow(hwnd)
+                time.sleep(0.2)
+        except Exception:
+            pass
+        safe = msg.replace("{", "{{").replace("}", "}}")
+        for attempt in range(2):
+            try:
+                _keyboard_send_keys(safe + "{ENTER}", with_spaces=True)
+                sent = True
+                break
+            except Exception as e:
+                err_msg = str(e).strip()
+                if "inserted only 0" in err_msg.lower() or "0 out of" in err_msg:
+                    err_msg = (
+                        "UIA path failed (%s). Keyboard fallback failed because RDP is not in the foreground. "
+                        "Keep RDP connected and the Viber window visible, or ensure Viber exposes the message box and Send button to UI Automation."
+                    ) % (uia_error or "unknown")
+                if attempt == 0 and hwnd:
+                    try:
+                        import win32gui
+                        win32gui.SetForegroundWindow(hwnd)
+                        time.sleep(0.5)
+                    except Exception:
+                        pass
+                    continue
+                _log_step("type message", time.monotonic() - t0)
+                return f"Failed to type/send: {err_msg}"
+    elif not sent:
         _log_step("type message", time.monotonic() - t0)
-        return f"Failed to type/send: {e}"
-    _log_step("type message + Enter", time.monotonic() - t0)
+        return "Could not send via UIA and keyboard not available"
+
+    _log_step("type message + Send", time.monotonic() - t0)
 
     time.sleep(0.5)
     try:
@@ -536,6 +917,8 @@ def check_number_base64():
     if ocr_image_bytes:
         log.debug("running on %s (%d bytes)", "panel" if panel_png is not None else "window", len(ocr_image_bytes))
     t0 = time.monotonic()
+    if ocr_image_bytes and not _has_gpt_ocr():
+        print("[viber-agent] OCR skipped: OPENAI_API_KEY not set (add to .env on the VPS)", flush=True)
     panel_text, contact_name = ocr_image_gpt(ocr_image_bytes) if ocr_image_bytes else ("", "")
     if ocr_image_bytes:
         _log_step("OCR total (Vision + fix name)", time.monotonic() - t0)

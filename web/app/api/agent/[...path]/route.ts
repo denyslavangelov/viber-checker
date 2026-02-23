@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const AGENT_URL = process.env.AGENT_URL || "";
+const AGENT_API_KEY = process.env.AGENT_API_KEY || "";
 
 export async function POST(
   request: NextRequest,
@@ -21,9 +22,14 @@ export async function POST(
     const body = await request.text();
     const contentType = request.headers.get("content-type") || "application/json";
 
+    const headers: Record<string, string> = { "Content-Type": contentType };
+    if (AGENT_API_KEY) {
+      headers["X-API-Key"] = AGENT_API_KEY;
+    }
+
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": contentType },
+      headers,
       body: body || undefined,
     });
 
