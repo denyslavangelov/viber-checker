@@ -187,7 +187,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => { setMode("send"); setError(null); setSendSuccess(false); }}
-                  className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all ${
+                  className={`hidden flex-1 rounded-lg py-2.5 text-sm font-medium transition-all ${
                     mode === "send"
                       ? "bg-white text-black"
                       : "text-white/70 hover:text-white"
@@ -198,7 +198,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => { setMode("api"); setError(null); }}
-                  className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all ${
+                  className={`hidden flex-1 rounded-lg py-2.5 text-sm font-medium transition-all ${
                     mode === "api"
                       ? "bg-white text-black"
                       : "text-white/70 hover:text-white"
